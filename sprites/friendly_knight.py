@@ -15,7 +15,6 @@ from core.settings import (
     WARRIOR_WHISTLE_FOCUS_MOVE_MULTIPLIER,
 )
 from .enemy import Enemy
-from .friendly_learning import FriendlyKnightLearningPolicy
 from .knight import Knight
 from .sprite import collide_hitboxes, sprites_collide
 
@@ -43,11 +42,6 @@ class FriendlyKnight(Knight):
         self.spawn_elapsed = FRIENDLY_KNIGHT_SPAWN_ANIMATION_TIME
         self.spawn_start = pygame.Vector2(start_pos)
         self.spawn_end = pygame.Vector2(start_pos)
-        self.learning_policy: FriendlyKnightLearningPolicy | None = None
-        self.rl_state: str | None = None
-        self.rl_action: str | None = None
-        self.rl_reward = 0.0
-        self.rl_decision_timer = 0.0
 
     def begin_spawn(
         self,
@@ -66,54 +60,14 @@ class FriendlyKnight(Knight):
         self.animations = self.load_animations()
         self.image = self.animations[("down", "idle")][0]
 
-    def target_score(
-        self,
-        enemy: Enemy,
-        home: pygame.Vector2,
-        strategy: str | None = None,
-    ) -> float:
+    def target_score(self, enemy: Enemy, home: pygame.Vector2) -> float:
         distance = pygame.Vector2(self.hitbox.center).distance_to(enemy.hitbox.center)
-        tower_distance = home.distance_to(enemy.hitbox.center)
-        threat = max(1.0, float(enemy.damage)) / max(0.25, float(enemy.attack_speed))
-        health_factor = max(1.0, float(enemy.health))
-        if strategy == "weakest":
-            return health_factor * 8.0 + distance * 0.35
-        if strategy == "highest_threat":
-            return distance * 0.45 + tower_distance * 0.15 - threat * 28.0
-        if strategy == "tower_guard":
-            return tower_distance * 0.75 + distance * 0.25
-        if strategy == "finisher":
-            return health_factor * 14.0 + distance * 0.25 - threat * 5.0
         if not self.elite_strategy:
             return distance
+        threat = max(1.0, float(enemy.damage)) / max(0.25, float(enemy.attack_speed))
+        tower_distance = home.distance_to(enemy.hitbox.center)
+        health_factor = max(1.0, float(enemy.health))
         return distance * 0.55 + tower_distance * 0.25 + health_factor * 0.08 - threat * 18
-
-    def update_learning(
-        self,
-        dt: float,
-        enemies: pygame.sprite.AbstractGroup,
-        home: pygame.Vector2,
-    ) -> str | None:
-        if self.learning_policy is None:
-            return None
-        next_state = self.learning_policy.state_for(self, enemies, home)
-        self.rl_decision_timer -= dt
-        if self.rl_action is None or self.rl_decision_timer <= 0:
-            self.learning_policy.learn(
-                self.rl_state,
-                self.rl_action,
-                self.rl_reward,
-                next_state,
-            )
-            self.rl_state = next_state
-            self.rl_action = self.learning_policy.choose_action(next_state)
-            self.rl_reward = 0.0
-            self.rl_decision_timer = 0.75
-        return self.rl_action
-
-    def reward_current_strategy(self, amount: float) -> None:
-        if self.learning_policy is not None and self.rl_action is not None:
-            self.rl_reward += amount
 
     def direct_to(self, target: tuple[float, float]) -> None:
         self.command_target = pygame.Vector2(target)
@@ -131,7 +85,6 @@ class FriendlyKnight(Knight):
         health_lost = previous_health - self.health
         if health_lost > 0:
             self.received_damage_events.append((self.rect.center, health_lost))
-            self.reward_current_strategy(-health_lost * 0.7)
 
     def attack_enemy(self, enemy: Enemy, dt: float) -> None:
         self.attack_timer += dt
@@ -143,13 +96,8 @@ class FriendlyKnight(Knight):
             damage = self.damage * (
                 self.crit_multiplier if random.random() < critical_chance else 1.0
             )
-            previous_health = enemy.health
             enemy.take_damage(damage)
-            dealt = max(0.0, previous_health - enemy.health)
-            self.damage_events.append((enemy.rect.center, dealt or damage))
-            self.reward_current_strategy(dealt)
-            if previous_health > 0 and not enemy.is_alive:
-                self.reward_current_strategy(10.0)
+            self.damage_events.append((enemy.rect.center, damage))
             self.attack_timer -= attack_delay
             self.first_attack_pending = False
             attack_delay = self.attack_speed
@@ -237,7 +185,6 @@ class FriendlyKnight(Knight):
 
         self.shake_timer = max(0.0, self.shake_timer - dt)
         home = pygame.Vector2(home_center)
-        strategy = self.update_learning(dt, enemies, home)
         current_center = pygame.Vector2(self.hitbox.center)
         from_home = current_center - home
         home_distance = from_home.length()
@@ -258,7 +205,7 @@ class FriendlyKnight(Knight):
                 and home.distance_to(enemy.hitbox.center)
                 <= FRIENDLY_KNIGHT_HOME_RADIUS
             ),
-            key=lambda enemy: self.target_score(enemy, home, strategy),
+            key=lambda enemy: self.target_score(enemy, home),
             default=None,
         )
         if target is None:
@@ -276,8 +223,6 @@ class FriendlyKnight(Knight):
             self.move_around_allies(dt, allies)
             self.attack_timer = 0.0
             self.first_attack_pending = True
-            if home_distance > FRIENDLY_KNIGHT_HOME_RADIUS * 0.90:
-                self.reward_current_strategy(-dt)
             self.update_animation(dt, False)
             return
 
@@ -332,7 +277,4 @@ class FriendlyKnight(Knight):
                 + inward
             )
             self.move_around_allies(dt, allies)
-            target_tower_distance = home.distance_to(target.hitbox.center)
-            if target_tower_distance < FRIENDLY_KNIGHT_HOME_RADIUS * 0.35:
-                self.reward_current_strategy(-dt * 0.5)
         self.update_animation(dt, touching)

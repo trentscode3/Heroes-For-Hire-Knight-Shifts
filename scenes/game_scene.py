@@ -118,7 +118,6 @@ from sprites import (
     create_player,
 )
 from sprites.sprite import collide_hitboxes, collide_rect_hitbox
-from sprites.friendly_learning import FriendlyKnightLearningPolicy
 from .level_up_scene import LevelUpScene
 from .inventory_scene import InventoryScene
 from .death_scene import DeathScene
@@ -221,7 +220,6 @@ class GameScene(Scene):
         self.wave_announcement_elapsed = 0.0
         self.boss_intro: dict | None = None
         self.pending_boss_intros: list[Boss] = []
-        self.friendly_learning_policy = FriendlyKnightLearningPolicy()
         self.lager_launcher_cooldown = LAGER_LAUNCHER_COOLDOWN
         self.friendly_knight_spawn_timer = FRIENDLY_KNIGHT_SPAWN_INTERVAL
         self.death_sequence_active = False
@@ -293,7 +291,6 @@ class GameScene(Scene):
             "wave_announcement_elapsed": self.wave_announcement_elapsed,
             "pending_level_ups": self.pending_level_ups,
             "friendly_spawn_timer": self.friendly_knight_spawn_timer,
-            "friendly_learning_policy": self.friendly_learning_policy.snapshot(),
             "lager_launcher_cooldown": self.lager_launcher_cooldown,
             "tower_health": self.tower.health,
             "awaiting_tower_return": self.awaiting_tower_return,
@@ -378,9 +375,6 @@ class GameScene(Scene):
         self.friendly_knight_spawn_timer = float(
             snapshot.get("friendly_spawn_timer", FRIENDLY_KNIGHT_SPAWN_INTERVAL)
         )
-        self.friendly_learning_policy.restore(
-            snapshot.get("friendly_learning_policy", {})
-        )
         self.lager_launcher_cooldown = float(
             snapshot.get("lager_launcher_cooldown", LAGER_LAUNCHER_COOLDOWN)
         )
@@ -446,7 +440,6 @@ class GameScene(Scene):
             if self.player.well_equipped_soldiers_unlocked:
                 self.state.apply_reinforcement_gear(knight)
             self.restore_combatant(knight, knight_data)
-            knight.learning_policy = self.friendly_learning_policy
             self.friendly_knights.add(knight)
         self.refresh_player_obstacles()
         if self.pending_level_ups > 0:
@@ -831,7 +824,6 @@ class GameScene(Scene):
             while self.friendly_knight_spawn_timer <= 0:
                 spawn_radius = max(self.tower.hitbox.size) / 2 + 20
                 candidate = FriendlyKnight((0, 0), FRIENDLY_KNIGHT_SPEED)
-                candidate.learning_policy = self.friendly_learning_policy
                 if self.player.elite_soldiers_unlocked:
                     candidate.become_elite()
                     candidate.speed *= ELITE_SOLDIER_SPEED_MULTIPLIER
