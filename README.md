@@ -1,6 +1,6 @@
 # Heroes for Hire: Knight Shifts Demo
 
-This is the public demo build of **Heroes for Hire: Knight Shifts**.
+This is the public demo build of **Heroes for Hire: Knight Shifts**. To play, follow the instructions below, then in the game folder double click **"game_demo.py"**.
 
 ## Demo Limits
 
